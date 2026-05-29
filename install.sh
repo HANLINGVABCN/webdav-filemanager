@@ -13,9 +13,8 @@ blue() { printf '\033[34m%s\033[0m\n' "$*"; }
 
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
-    red "错误: 安装此服务需要 Root 权限。"
-    yellow "请使用 'sudo' 执行，或者切换到 root 用户再试。"
-    exit 1
+    yellow "需要 root 权限，正在尝试使用 sudo 重新执行..."
+    exec sudo bash "$0" "$@"
   fi
 }
 
