@@ -17,6 +17,10 @@
 
 ## 🚀 启动与使用 (Usage)
 
+### 静态 UI 在线演示 (Demo)
+前端 UI 界面完全可以通过浏览器直接浏览。
+你可以点击这里查看界面外观的在线演示：[https://hanlingvabcn.github.io/webdav-filemanager/](https://hanlingvabcn.github.io/webdav-filemanager/) *(注意：演示页为静态托管，无法进行实际的文件读写操作)*
+
 ### 命令行运行
 
 运行前确保系统已安装 Python 3 (建议 3.8 及以上版本)。
