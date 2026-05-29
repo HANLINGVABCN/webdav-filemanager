@@ -4,10 +4,10 @@
 
 ## 🎯 Linux 一键部署脚本
 
-如果你的 Linux 服务器拥有 `systemd`，强烈建议直接执行以下一键安装命令。脚本会自动下载并配置端口、目录、账号，以及设置开机自动启动后台守护进程：
+如果你的 Linux 服务器拥有 `systemd`，并且想直接从远程下载并安装，请直接执行以下一条命令。脚本会自动拉取代码并配置端口、目录、账号，以及设置开机自动启动后台守护进程：
 
 ```bash
-sudo ./install.sh
+curl -fsSL https://raw.githubusercontent.com/HANLINGVABCN/webdav-filemanager/master/install.sh | sudo bash
 ```
 
 ## ✨ 特性 (Features)
