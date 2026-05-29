@@ -1848,7 +1848,45 @@ async function ensureAuthenticated() {
 /* ============================================================
    API Helpers
    ============================================================ */
+function mockApiFetch(url, opts = {}) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (url.startsWith('/api/auth/check')) return reject(new Error('Demo mode'));
+            if (url.startsWith('/api/auth/login')) {
+                const body = JSON.parse(opts.body || '{}');
+                if (body.username === 'admin' && body.password === 'admin') return resolve({ success: true });
+                return reject(new Error('账号或密码错误（演示账号：admin / 密码：admin）'));
+            }
+            if (url.startsWith('/api/auth/logout')) return resolve({ success: true });
+            if (url.startsWith('/api/disk')) return resolve({ total: 1000 * 1024 * 1024 * 1024, free: 350 * 1024 * 1024 * 1024 });
+            if (url.startsWith('/api/user')) return resolve({ username: 'admin (Demo)' });
+            if (url.startsWith('/api/list')) {
+                const isRoot = !url.includes('path=') || url.endsWith('=%2F');
+                if (isRoot) {
+                    return resolve({
+                        path: '/',
+                        items: [
+                            { name: 'Documents', path: '/Documents', isDir: true, size: 0, modifiedStr: '2026-05-30 10:00:00' },
+                            { name: 'Photos', path: '/Photos', isDir: true, size: 0, modifiedStr: '2026-05-29 14:20:00' },
+                            { name: 'README.md', path: '/README.md', isDir: false, size: 1024, modifiedStr: '2026-05-28 09:12:00' },
+                            { name: 'demo.mp4', path: '/demo.mp4', isDir: false, size: 104857600, modifiedStr: '2026-05-20 18:30:00' }
+                        ]
+                    });
+                }
+                return resolve({ path: decodeURIComponent(url.split('path=')[1] || '/'), items: [] });
+            }
+            if (url.startsWith('/api/shares')) return resolve({ shares: [] });
+            resolve({ success: true, url: 'https://hanlingvabcn.github.io/webdav-filemanager/demo-share' });
+        }, 300);
+    });
+}
+
 async function apiFetch(url, opts = {}) {
+    // 针对 GitHub Pages 静态演示环境的拦截模拟
+    if (window.location.hostname.includes('github.io') || window.location.protocol === 'file:') {
+        return mockApiFetch(url, opts);
+    }
+
     const res = await fetch(url, { credentials: 'same-origin', ...opts });
     const contentType = res.headers.get('Content-Type') || '';
     const data = contentType.includes('application/json') ? await res.json() : {};
