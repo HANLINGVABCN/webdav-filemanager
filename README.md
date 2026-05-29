@@ -2,16 +2,10 @@
 
 一个精简、零依赖的 Python WebDAV 文件管理服务器。只需 Python 标准库即可运行，支持跨平台使用。它既是一个拥有精美现代化 UI 的**个人网盘**系统，也是一个标准的 **WebDAV 服务器**。
 
-## 🎯 快速体验与一键部署
+## 🎯 Linux 一键部署脚本
 
-### 静态 UI 在线演示 (Demo)
-前端 UI 界面完全可以通过浏览器直接浏览，点击下方链接查看现代化界面外观：
-👉 [https://hanlingvabcn.github.io/webdav-filemanager/](https://hanlingvabcn.github.io/webdav-filemanager/) *(纯静态托管展示，不包含文件读写功能)*
-> **演示账号**: `admin`
-> **演示密码**: `admin`
+如果你的 Linux 服务器拥有 `systemd`，强烈建议直接执行以下一键安装命令。脚本会自动下载并配置端口、目录、账号，以及设置开机自动启动后台守护进程：
 
-### Linux 一键服务部署
-如果你的 Linux 拥有 `systemd`，可以直接运行安装脚本，并按向导提示进行端口、目录和账号的快速配置：
 ```bash
 sudo ./install.sh
 ```
