@@ -2,6 +2,18 @@
 
 一个精简、零依赖的 Python WebDAV 文件管理服务器。只需 Python 标准库即可运行，支持跨平台使用。它既是一个拥有精美现代化 UI 的**个人网盘**系统，也是一个标准的 **WebDAV 服务器**。
 
+## 🎯 快速体验与一键部署
+
+### 静态 UI 在线演示 (Demo)
+前端 UI 界面完全可以通过浏览器直接浏览，点击下方链接查看现代化界面外观：
+👉 [https://hanlingvabcn.github.io/webdav-filemanager/](https://hanlingvabcn.github.io/webdav-filemanager/) *(纯静态托管展示，不包含文件读写功能)*
+
+### Linux 一键服务部署
+如果你的 Linux 拥有 `systemd`，可以直接运行安装脚本，并按向导提示进行端口、目录和账号的快速配置：
+```bash
+sudo ./install.sh
+```
+
 ## ✨ 特性 (Features)
 
 - **零依赖**: 仅使用 Python 3 标准库（无需 `pip install`）。
@@ -15,13 +27,7 @@
 - **系统信息**: 顶部实时显示磁盘空间容量及使用状态。
 - **一键安装**: 提供 Linux/Systemd 守护进程的一键安装与卸载脚本。
 
-## 🚀 启动与使用 (Usage)
-
-### 静态 UI 在线演示 (Demo)
-前端 UI 界面完全可以通过浏览器直接浏览。
-你可以点击这里查看界面外观的在线演示：[https://hanlingvabcn.github.io/webdav-filemanager/](https://hanlingvabcn.github.io/webdav-filemanager/) *(注意：演示页为静态托管，无法进行实际的文件读写操作)*
-
-### 命令行运行
+## 🚀 本地运行 (Usage)
 
 运行前确保系统已安装 Python 3 (建议 3.8 及以上版本)。
 
@@ -39,17 +45,6 @@ python3 server.py [选项]
 # 在 8989 端口启动，管理 /data 目录，用户名为 admin，密码为 123456
 python3 server.py --port 8989 --root /data --auth admin:123456
 ```
-
-### Linux 一键服务部署 (Linux Installer)
-
-系统要求: 拥有 `systemd` 的 Linux 发行版。
-
-运行安装脚本，并按向导提示进行配置：
-```bash
-sudo ./install.sh
-```
-
-此脚本会将程序复制到 `/opt/webdav-filemanager`，创建后台守护进程，支持设置端口、根目录和用户名密码，并自动配置开机启动。
 
 ## 📁 文件结构
 
