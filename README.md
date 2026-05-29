@@ -7,6 +7,8 @@
 ### 静态 UI 在线演示 (Demo)
 前端 UI 界面完全可以通过浏览器直接浏览，点击下方链接查看现代化界面外观：
 👉 [https://hanlingvabcn.github.io/webdav-filemanager/](https://hanlingvabcn.github.io/webdav-filemanager/) *(纯静态托管展示，不包含文件读写功能)*
+> **演示账号**: `admin`
+> **演示密码**: `admin`
 
 ### Linux 一键服务部署
 如果你的 Linux 拥有 `systemd`，可以直接运行安装脚本，并按向导提示进行端口、目录和账号的快速配置：
