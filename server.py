@@ -7,6 +7,7 @@ WebDAV 文件管理器 - 零依赖 Python 文件管理服务器
 功能:
   - 网页文件管理器 (上传/下载/复制/移动/删除/重命名)
   - WebDAV 协议支持 (可用系统文件管理器挂载)
+  - 右键压缩/解压 (zip 压缩，zip/tar 系列解压)
   - 磁盘容量显示
   - 网页登录认证，WebDAV Basic Auth 认证
   - 零外部依赖，仅使用 Python 标准库
@@ -25,6 +26,8 @@ import secrets
 import uuid
 import time
 import threading
+import zipfile
+import tarfile
 from http import cookies
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -49,6 +52,7 @@ AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'filemanage
 MAX_TTL_SECONDS = 10 * 365 * 24 * 60 * 60
 MAX_SPARSE_FILE_SIZE = 100 * 1024 * 1024 * 1024
 MAX_TEXT_EDIT_SIZE = 10 * 1024 * 1024
+WEBDAV_DIR_NAME = 'webdav'
 
 # Login rate limiter: { ip: { 'fails': int, 'locked_until': float } }
 _login_attempts = {}
@@ -161,6 +165,12 @@ def save_auth_cred(auth):
     os.replace(tmp, AUTH_FILE)
 
 
+def valid_login_username(username):
+    if not username or ':' in username:
+        return False
+    return not any(ord(ch) < 32 or ord(ch) == 127 for ch in username)
+
+
 def clamp_ttl(value, default=24 * 60 * 60):
     try:
         ttl = int(value)
@@ -229,6 +239,183 @@ def read_text_file(full):
     if len(raw) > MAX_TEXT_EDIT_SIZE:
         raise ValueError(f'文本编辑最大支持 {format_size(MAX_TEXT_EDIT_SIZE)}')
     return raw.decode('utf-8-sig')
+
+
+def calculate_logical_size(path):
+    if os.path.isfile(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+    total = 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(path):
+            dirnames[:] = [name for name in dirnames if not os.path.islink(os.path.join(dirpath, name))]
+            for name in filenames:
+                fp = os.path.join(dirpath, name)
+                if os.path.islink(fp):
+                    continue
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def root_relative_path(full):
+    root_real = os.path.realpath(ROOT_DIR)
+    full_real = os.path.realpath(full)
+    if full_real == root_real:
+        return '/'
+    return '/' + os.path.relpath(full_real, root_real).replace('\\', '/')
+
+
+def ensure_webdav_storage():
+    base = safe_join(ROOT_DIR, WEBDAV_DIR_NAME) if ROOT_DIR else None
+    if not base:
+        return None
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
+def archive_member_path(name):
+    raw = str(name or '').replace('\\', '/')
+    if not raw or raw.startswith('/') or raw.startswith('~/'):
+        return '' if not raw else None
+    if len(raw) >= 2 and raw[1] == ':':
+        return None
+    parts = []
+    for part in raw.split('/'):
+        if not part or part == '.':
+            continue
+        if part == '..' or ':' in part:
+            return None
+        parts.append(part)
+    return '/'.join(parts)
+
+
+def supported_archive_name(name):
+    lower = str(name or '').lower()
+    return (
+        lower.endswith('.zip') or
+        lower.endswith('.tar') or
+        lower.endswith('.tar.gz') or
+        lower.endswith('.tgz') or
+        lower.endswith('.tar.bz2') or
+        lower.endswith('.tbz2') or
+        lower.endswith('.tar.xz') or
+        lower.endswith('.txz')
+    )
+
+
+def create_zip_archive(source_paths, target):
+    root_real = os.path.realpath(ROOT_DIR)
+    target_real = os.path.realpath(target)
+    dirs_seen = set()
+    file_count = 0
+
+    def add_dir(zf, arcname):
+        arcname = arcname.replace('\\', '/').strip('/')
+        if not arcname:
+            return
+        if not arcname.endswith('/'):
+            arcname += '/'
+        if arcname in dirs_seen:
+            return
+        dirs_seen.add(arcname)
+        zf.writestr(arcname, b'')
+
+    def can_include(path):
+        if os.path.islink(path):
+            return False
+        real = os.path.realpath(path)
+        if real == target_real:
+            return False
+        return real == root_real or real.startswith(root_real + os.sep)
+
+    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        for source in source_paths:
+            source = os.path.realpath(source)
+            base = os.path.basename(source.rstrip(os.sep)) or 'root'
+            if os.path.isdir(source):
+                add_dir(zf, base)
+                for dirpath, dirnames, filenames in os.walk(source):
+                    dirnames[:] = [
+                        d for d in dirnames
+                        if can_include(os.path.join(dirpath, d))
+                    ]
+                    rel_dir = os.path.relpath(dirpath, source)
+                    arc_dir = base if rel_dir == '.' else f'{base}/{rel_dir.replace(os.sep, "/")}'
+                    add_dir(zf, arc_dir)
+                    for filename in filenames:
+                        fp = os.path.join(dirpath, filename)
+                        if not can_include(fp):
+                            continue
+                        rel_file = filename if rel_dir == '.' else f'{rel_dir.replace(os.sep, "/")}/{filename}'
+                        zf.write(fp, f'{base}/{rel_file}'.replace('\\', '/'))
+                        file_count += 1
+            elif can_include(source):
+                zf.write(source, base)
+                file_count += 1
+    return file_count
+
+
+def extract_zip_archive(archive, dest):
+    count = 0
+    with zipfile.ZipFile(archive) as zf:
+        for info in zf.infolist():
+            rel = archive_member_path(info.filename)
+            if rel is None:
+                raise ValueError('压缩包包含非法路径')
+            if not rel:
+                continue
+            target = safe_join(dest, rel)
+            if not target:
+                raise ValueError('压缩包包含非法路径')
+            if info.is_dir():
+                os.makedirs(target, exist_ok=True)
+                continue
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with zf.open(info) as src, open(target, 'wb') as out:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+            count += 1
+    return count
+
+
+def extract_tar_archive(archive, dest):
+    count = 0
+    with tarfile.open(archive, 'r:*') as tf:
+        for member in tf.getmembers():
+            rel = archive_member_path(member.name)
+            if rel is None:
+                raise ValueError('压缩包包含非法路径')
+            if not rel:
+                continue
+            target = safe_join(dest, rel)
+            if not target:
+                raise ValueError('压缩包包含非法路径')
+            if member.isdir():
+                os.makedirs(target, exist_ok=True)
+            elif member.isfile():
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                src = tf.extractfile(member)
+                if src is None:
+                    continue
+                with src, open(target, 'wb') as out:
+                    shutil.copyfileobj(src, out, 1024 * 1024)
+                count += 1
+    return count
+
+
+def extract_archive(archive, dest):
+    lower = archive.lower()
+    if lower.endswith('.zip'):
+        return extract_zip_archive(archive, dest)
+    if supported_archive_name(lower):
+        return extract_tar_archive(archive, dest)
+    raise ValueError('仅支持解压 zip、tar、tar.gz、tgz、tar.bz2、tbz2、tar.xz、txz')
 
 
 # ============================================================
@@ -549,8 +736,8 @@ class FileManagerHandler(BaseHTTPRequestHandler):
         })
 
     def _api_auth_POST(self, path, qs):
-        if path == '/api/auth/change-password':
-            return self._api_auth_change_password()
+        if path in ('/api/auth/change-account', '/api/auth/change-password'):
+            return self._api_auth_change_account()
         if path == '/api/auth/login':
             return self._api_auth_login()
         if path == '/api/auth/logout':
@@ -620,7 +807,7 @@ class FileManagerHandler(BaseHTTPRequestHandler):
             headers={'Set-Cookie': self._expired_session_cookie()},
         )
 
-    def _api_auth_change_password(self):
+    def _api_auth_change_account(self):
         global AUTH_CRED
         if not AUTH_CRED:
             return self.send_err(400, '当前未启用登录认证')
@@ -631,21 +818,30 @@ class FileManagerHandler(BaseHTTPRequestHandler):
         except Exception:
             return self.send_err(400, '请求格式不正确')
         old_password = str(data.get('oldPassword', ''))
-        new_password = str(data.get('newPassword', ''))
-        if len(new_password) < 6:
-            return self.send_err(400, '新密码至少 6 位')
         username, expected_password = self._auth_parts()
         if not self._safe_equal(old_password, expected_password):
-            return self.send_err(401, '旧密码错误')
-        AUTH_CRED = f'{username}:{new_password}'
+            return self.send_err(401, '当前密码错误')
+
+        new_username = str(data.get('newUsername', data.get('username', username))).strip()
+        if not valid_login_username(new_username):
+            return self.send_err(400, '登录账号不能为空，且不能包含冒号或控制字符')
+
+        new_password = str(data.get('newPassword', ''))
+        password = expected_password
+        if new_password:
+            if len(new_password) < 6:
+                return self.send_err(400, '新密码至少 6 位')
+            password = new_password
+
+        AUTH_CRED = f'{new_username}:{password}'
         try:
             save_auth_cred(AUTH_CRED)
         except OSError as e:
-            return self.send_err(500, f'保存密码失败: {self._sanitize_error(e)}')
+            return self.send_err(500, f'保存账号设置失败: {self._sanitize_error(e)}')
         with SESSIONS_LOCK:
             SESSIONS.clear()
         self.send_json(
-            {'success': True, 'authenticated': False, 'username': username},
+            {'success': True, 'authenticated': False, 'username': new_username},
             headers={'Set-Cookie': self._expired_session_cookie()},
         )
 
@@ -725,9 +921,12 @@ class FileManagerHandler(BaseHTTPRequestHandler):
         cleanup_expired_temp_files()
         req_path = qs.get('path', [''])[0]
         full = safe_join(ROOT_DIR, req_path)
-        if not full or not os.path.isfile(full):
-            return self.send_err(404, '文件不存在')
+        if not full or not os.path.exists(full):
+            return self.send_err(404, '项目不存在')
         info = get_file_info(ROOT_DIR, req_path, full)
+        if info and info.get('isDir'):
+            info['size'] = calculate_logical_size(full)
+            info['sizeStr'] = format_size(info['size'])
         self.send_json(info)
 
     def _api_text_get(self, qs):
@@ -851,6 +1050,8 @@ class FileManagerHandler(BaseHTTPRequestHandler):
             '/api/rename': self._api_rename,
             '/api/copy': self._api_copy,
             '/api/move': self._api_move,
+            '/api/archive': self._api_archive,
+            '/api/extract': self._api_extract,
         }
         handler = routes.get(path)
         if handler:
@@ -1151,16 +1352,101 @@ class FileManagerHandler(BaseHTTPRequestHandler):
         else:
             self.send_ok('移动成功')
 
+    def _api_archive(self):
+        data = self.read_json()
+        sources = data.get('sources', [])
+        dest = data.get('dest', '/')
+        name = str(data.get('name', '')).strip() or 'archive.zip'
+        if not sources:
+            return self.send_err(400, '请选择要压缩的文件')
+        if not name.lower().endswith('.zip'):
+            name += '.zip'
+        if not valid_leaf_name(name):
+            return self.send_err(400, '压缩包名称无效')
+
+        dp = safe_join(ROOT_DIR, dest)
+        if not dp or not os.path.isdir(dp):
+            return self.send_err(400, '压缩位置不存在')
+
+        source_paths = []
+        errs = []
+        root_real = os.path.realpath(ROOT_DIR)
+        for s in sources:
+            sp = safe_join(ROOT_DIR, s)
+            if not sp or not os.path.exists(sp):
+                errs.append(f'{s}: 文件不存在')
+                continue
+            if os.path.realpath(sp) == root_real:
+                errs.append(f'{s}: 不能压缩根目录本身')
+                continue
+            source_paths.append(sp)
+        if errs:
+            return self.send_json({'success': False, 'errors': errs}, 207)
+
+        target = make_unique_path(dp, name)
+        try:
+            count = create_zip_archive(source_paths, target)
+            self.send_json({
+                'success': True,
+                'message': f'压缩完成，共 {count} 个文件',
+                'path': root_relative_path(target),
+                'dest': root_relative_path(dp),
+                'name': os.path.basename(target),
+                'count': count,
+            })
+        except (OSError, zipfile.BadZipFile, ValueError) as e:
+            if os.path.exists(target):
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
+            self.send_err(500, f'压缩失败: {self._sanitize_error(e)}')
+
+    def _api_extract(self):
+        data = self.read_json()
+        req_path = data.get('path', '')
+        dest = data.get('dest', '/')
+        if not req_path:
+            return self.send_err(400, '缺少压缩包路径')
+
+        archive = safe_join(ROOT_DIR, req_path)
+        if not archive or not os.path.isfile(archive):
+            return self.send_err(404, '压缩包不存在')
+        if not supported_archive_name(archive):
+            return self.send_err(400, '仅支持解压 zip、tar、tar.gz、tgz、tar.bz2、tbz2、tar.xz、txz')
+
+        dp = safe_join(ROOT_DIR, dest)
+        if not dp or not os.path.isdir(dp):
+            return self.send_err(400, '解压位置不存在')
+
+        try:
+            count = extract_archive(archive, dp)
+            self.send_json({
+                'success': True,
+                'message': f'解压完成，共 {count} 个文件',
+                'dest': root_relative_path(dp),
+                'count': count,
+            })
+        except (OSError, zipfile.BadZipFile, tarfile.TarError, ValueError) as e:
+            self.send_err(500, f'解压失败: {self._sanitize_error(e)}')
+
     # ==========================================================
     # WebDAV - Path Resolution
     # ==========================================================
     def _dav_resolve(self, url_path):
-        """Resolve /dav/... URL to (filesystem_path, relative_path)."""
+        """Resolve /dav/... URL to the dedicated ROOT_DIR/webdav storage."""
+        try:
+            dav_root = ensure_webdav_storage()
+        except OSError:
+            return None, '/'
+        if not dav_root:
+            return None, '/'
         rel = url_path[4:] if url_path.startswith('/dav') else url_path
-        if not rel or rel == '/':
-            return os.path.realpath(ROOT_DIR), '/'
-        full = safe_join(ROOT_DIR, rel)
-        return full, rel
+        rel = rel.replace('\\', '/').strip('/')
+        if not rel:
+            return os.path.realpath(dav_root), '/'
+        full = safe_join(dav_root, rel)
+        return full, '/' + rel
 
     def _dav_href(self, rel_path, is_dir=False):
         """Build a properly encoded WebDAV href."""
@@ -1322,6 +1608,8 @@ class FileManagerHandler(BaseHTTPRequestHandler):
         full, rel = self._dav_resolve(path)
         if not full or not os.path.exists(full):
             return self.send_empty(404)
+        if rel == '/':
+            return self.send_empty(403)
         try:
             if os.path.isdir(full):
                 shutil.rmtree(full)
@@ -1395,6 +1683,8 @@ class FileManagerHandler(BaseHTTPRequestHandler):
         full, rel = self._dav_resolve(path)
         if not full or not os.path.exists(full):
             return self.send_empty(404)
+        if rel == '/':
+            return self.send_empty(403)
 
         dest_header = self.headers.get('Destination', '')
         if not dest_header:
@@ -1471,18 +1761,7 @@ def _allocated_size(path):
 
 def _calculate_root_logical_size():
     """Calculate the apparent file sizes in ROOT_DIR."""
-    total = 0
-    try:
-        for dirpath, dirnames, filenames in os.walk(ROOT_DIR):
-            for name in filenames:
-                fp = os.path.join(dirpath, name)
-                try:
-                    total += os.path.getsize(fp)
-                except OSError:
-                    pass
-    except OSError:
-        pass
-    return total
+    return calculate_logical_size(ROOT_DIR)
 
 
 def _calculate_root_allocated_size():

@@ -355,6 +355,8 @@ body {
     overflow-y: auto;
     padding: 6px;
     min-height: 200px;
+    user-select: none;
+    -webkit-user-select: none;
 }
 .file-list::-webkit-scrollbar { width: 5px; }
 .file-list::-webkit-scrollbar-track { background: transparent; }
@@ -808,6 +810,60 @@ body {
     margin-top: 10px;
 }
 .share-output input { flex: 1; }
+.path-select-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.path-select-row input { flex: 1; }
+.path-select-row .btn { flex-shrink: 0; }
+.dir-picker-bar {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.dir-picker-path {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    word-break: break-all;
+}
+.dir-picker-list {
+    max-height: min(48vh, 360px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-sm);
+    background: rgba(0,0,0,0.14);
+    padding: 8px;
+}
+.dir-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,0.035);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    text-align: left;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 0.82rem;
+}
+.dir-picker-item:hover {
+    background: rgba(129, 140, 248, 0.1);
+}
+.archive-source {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    word-break: break-all;
+    margin-bottom: 10px;
+}
 .page-panel {
     display: none;
     flex: 1;
@@ -1160,6 +1216,17 @@ body {
     font-size: 1.1rem;
     font-weight: 600;
 }
+.selection-rect {
+    position: fixed;
+    z-index: 4500;
+    display: none;
+    pointer-events: none;
+    border: 1px solid rgba(129, 140, 248, 0.82);
+    background: rgba(129, 140, 248, 0.16);
+    border-radius: 4px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset;
+}
+.selection-rect.show { display: block; }
 
 /* ============================================================
    Confirm Dialog
@@ -1231,6 +1298,56 @@ body {
     margin: 12px 0 8px;
 }
 
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    cursor: pointer;
+}
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.toggle-slider {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+    transition: all 0.3s ease;
+}
+.toggle-slider:before {
+    content: "";
+    position: absolute;
+    height: 18px;
+    width: 18px;
+    left: 2px;
+    bottom: 2px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: all 0.3s ease;
+}
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+}
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+    background: var(--accent);
+}
+.toggle-switch:hover .toggle-slider {
+    background: rgba(255, 255, 255, 0.15);
+}
+.toggle-switch input:checked:hover + .toggle-slider {
+    background: rgba(129, 140, 248, 0.3);
+}
+
 /* ============================================================
    Responsive
    ============================================================ */
@@ -1284,6 +1401,7 @@ body {
 <div class="drag-overlay" id="dragOverlay">
     <div class="drag-overlay-text">📤 释放文件以上传到当前目录</div>
 </div>
+<div class="selection-rect" id="selectionRect"></div>
 
 <!-- Toasts -->
 <div class="toast-container" id="toasts"></div>
@@ -1454,6 +1572,8 @@ body {
     <button class="ctx-item" id="ctxDownload" onclick="ctxDownload()"><span class="ctx-icon">📥</span>下载</button>
     <button class="ctx-item" id="ctxEdit" onclick="ctxEdit()"><span class="ctx-icon">📝</span>编辑文本</button>
     <button class="ctx-item" id="ctxShare" onclick="ctxShare()"><span class="ctx-icon">🔗</span>生成下载链接</button>
+    <button class="ctx-item" id="ctxCompress" onclick="openCompressModal()"><span class="ctx-icon">📦</span>压缩</button>
+    <button class="ctx-item" id="ctxExtract" onclick="openExtractModal()"><span class="ctx-icon">🗂️</span>解压</button>
     <div class="ctx-divider"></div>
     <button class="ctx-item" id="ctxCopy" onclick="ctxCopy()"><span class="ctx-icon">📋</span>复制</button>
     <button class="ctx-item" id="ctxCut" onclick="ctxCut()"><span class="ctx-icon">✂️</span>剪切</button>
@@ -1595,6 +1715,62 @@ body {
     </div>
 </div>
 
+<!-- Archive modal -->
+<div class="modal-overlay" id="archiveModal">
+    <div class="modal">
+        <div class="modal-title">📦 压缩</div>
+        <div class="form-field">
+            <label>压缩包名称</label>
+            <input type="text" class="modal-input" id="archiveNameInput" value="archive.zip">
+        </div>
+        <div class="form-field" style="margin-top:10px;">
+            <label>压缩位置</label>
+            <div class="path-select-row">
+                <input type="text" class="modal-input" id="archiveDestInput" value="/" readonly>
+                <button class="btn" onclick="openDirectoryPicker('archiveDestInput')">选择</button>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" onclick="hideModal('archiveModal')">取消</button>
+            <button class="btn btn-primary" id="archiveConfirmBtn" onclick="doCompress()">压缩</button>
+        </div>
+    </div>
+</div>
+
+<!-- Extract modal -->
+<div class="modal-overlay" id="extractModal">
+    <div class="modal">
+        <div class="modal-title">🗂️ 解压</div>
+        <div class="archive-source" id="extractSourceText"></div>
+        <div class="form-field">
+            <label>解压位置</label>
+            <div class="path-select-row">
+                <input type="text" class="modal-input" id="extractDestInput" value="/" readonly>
+                <button class="btn" onclick="openDirectoryPicker('extractDestInput')">选择</button>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" onclick="hideModal('extractModal')">取消</button>
+            <button class="btn btn-primary" onclick="doExtract()">解压</button>
+        </div>
+    </div>
+</div>
+
+<!-- Directory picker modal -->
+<div class="modal-overlay" id="directoryPickerModal">
+    <div class="modal">
+        <div class="modal-title">选择文件夹</div>
+        <div class="dir-picker-bar">
+            <div class="dir-picker-path" id="dirPickerPath">/</div>
+            <button class="btn btn-primary" onclick="selectDirectoryPickerPath()">选择此处</button>
+        </div>
+        <div class="dir-picker-list" id="dirPickerList"></div>
+        <div class="modal-actions">
+            <button class="btn" onclick="hideModal('directoryPickerModal')">关闭</button>
+        </div>
+    </div>
+</div>
+
 <!-- Transfer modal -->
 <div class="modal-overlay" id="transferModal">
     <div class="modal modal-wide">
@@ -1666,14 +1842,28 @@ body {
             <span class="settings-label">根目录实际占盘</span><span class="settings-value" id="settingsRootAllocated">--</span>
             <span class="settings-label">根目录</span><span class="settings-value" id="settingsRootPath">--</span>
         </div>
-        <div class="settings-section-title">修改密码</div>
+        <div class="settings-section-title">交互设置</div>
+        <div class="settings-grid">
+            <span class="settings-label">长按震动反馈</span>
+            <span class="settings-value">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="vibrateToggle" onchange="toggleVibrate(this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </span>
+        </div>
+        <div class="settings-section-title">账号设置</div>
         <div class="form-grid">
             <div class="form-field">
-                <label>旧密码</label>
+                <label>登录账号</label>
+                <input type="text" class="modal-input" id="accountUsernameInput" autocomplete="username">
+            </div>
+            <div class="form-field">
+                <label>当前密码</label>
                 <input type="password" class="modal-input" id="oldPasswordInput" autocomplete="current-password">
             </div>
             <div class="form-field">
-                <label>新密码</label>
+                <label>新密码（不改可留空）</label>
                 <input type="password" class="modal-input" id="newPasswordInput" autocomplete="new-password">
             </div>
             <div class="form-field">
@@ -1684,7 +1874,7 @@ body {
         <div class="modal-actions">
             <button class="btn btn-danger" onclick="logout()">退出登录</button>
             <button class="btn" onclick="hideModal('settingsModal')">关闭</button>
-            <button class="btn btn-primary" onclick="changePassword()">保存密码</button>
+            <button class="btn btn-primary" onclick="changeAccount()">保存账号</button>
         </div>
     </div>
 </div>
@@ -1728,6 +1918,24 @@ let downloadDragId = '';
 let currentUsername = '';
 let navReady = false;
 let suppressHistoryPush = false;
+let archiveSources = [];
+let extractSourcePath = '';
+let directoryPickerTarget = '';
+let directoryPickerPath = '/';
+
+// Drag selection state
+let dragSelecting = false;
+let dragSelectStart = null;
+let dragSelectTimer = null;
+let dragSelectInitialSelected = new Set();
+let dragSelectAdditive = false;
+let dragSelectMoved = false;
+let dragSelectTouchId = null;
+let dragSelectPendingTouch = null;
+let dragSelectSuppressClick = false;
+let dragSelectSuppressTimer = null;
+let dragSelectOriginalUserSelect = '';
+let vibrateEnabled = localStorage.getItem('fm_vibrate') !== 'false'; // Default true
 
 /* ============================================================
    Init
@@ -1848,45 +2056,7 @@ async function ensureAuthenticated() {
 /* ============================================================
    API Helpers
    ============================================================ */
-function mockApiFetch(url, opts = {}) {
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            if (url.startsWith('/api/auth/check')) return reject(new Error('Demo mode'));
-            if (url.startsWith('/api/auth/login')) {
-                const body = JSON.parse(opts.body || '{}');
-                if (body.username === 'admin' && body.password === 'admin') return resolve({ success: true });
-                return reject(new Error('账号或密码错误（演示账号：admin / 密码：admin）'));
-            }
-            if (url.startsWith('/api/auth/logout')) return resolve({ success: true });
-            if (url.startsWith('/api/disk')) return resolve({ total: 1000 * 1024 * 1024 * 1024, free: 350 * 1024 * 1024 * 1024 });
-            if (url.startsWith('/api/user')) return resolve({ username: 'admin (Demo)' });
-            if (url.startsWith('/api/list')) {
-                const isRoot = !url.includes('path=') || url.endsWith('=%2F');
-                if (isRoot) {
-                    return resolve({
-                        path: '/',
-                        items: [
-                            { name: 'Documents', path: '/Documents', isDir: true, size: 0, modifiedStr: '2026-05-30 10:00:00' },
-                            { name: 'Photos', path: '/Photos', isDir: true, size: 0, modifiedStr: '2026-05-29 14:20:00' },
-                            { name: 'README.md', path: '/README.md', isDir: false, size: 1024, modifiedStr: '2026-05-28 09:12:00' },
-                            { name: 'demo.mp4', path: '/demo.mp4', isDir: false, size: 104857600, modifiedStr: '2026-05-20 18:30:00' }
-                        ]
-                    });
-                }
-                return resolve({ path: decodeURIComponent(url.split('path=')[1] || '/'), items: [] });
-            }
-            if (url.startsWith('/api/shares')) return resolve({ shares: [] });
-            resolve({ success: true, url: 'https://hanlingvabcn.github.io/webdav-filemanager/demo-share' });
-        }, 300);
-    });
-}
-
 async function apiFetch(url, opts = {}) {
-    // 针对 GitHub Pages 静态演示环境的拦截模拟
-    if (window.location.hostname.includes('github.io') || window.location.protocol === 'file:') {
-        return mockApiFetch(url, opts);
-    }
-
     const res = await fetch(url, { credentials: 'same-origin', ...opts });
     const contentType = res.headers.get('Content-Type') || '';
     const data = contentType.includes('application/json') ? await res.json() : {};
@@ -1988,7 +2158,7 @@ function renderFiles() {
         const cut = clipboard && clipboard.action === 'cut' && clipboard.paths.includes(f.path) ? ' cut' : '';
         const icon = fileIcon(f);
         const size = f.isDir ? '' : fmtSize(f.size);
-        const escapedPath = esc(f.path);
+        const escapedPath = escAttr(f.path);
         html += `<div class="file-item${sel}${cut}" data-path="${escapedPath}" data-idx="${i}"
             onclick="onFileClick(event,${i})" ondblclick="onFileDbl(${i})"
             oncontextmenu="onFileCtx(event,${i})"
@@ -2048,6 +2218,13 @@ function renderSortArrows() {
    File Click Handlers
    ============================================================ */
 function onFileClick(e, idx) {
+    // Ignore click if we're in drag selection mode
+    if (dragSelecting || dragSelectSuppressClick) {
+        e.preventDefault();
+        dragSelectSuppressClick = false;
+        return;
+    }
+
     const f = getVisibleFiles()[idx];
     if (!f) return;
     if (e.ctrlKey || e.metaKey) {
@@ -2070,6 +2247,220 @@ function onFileDbl(idx) {
     if (!f) return;
     if (f.isDir) loadFiles(f.path);
     else downloadFile(f.path);
+}
+
+/* ============================================================
+   Drag Selection
+   ============================================================ */
+function clearDragSelectionTimer() {
+    if (dragSelectTimer) {
+        clearTimeout(dragSelectTimer);
+        dragSelectTimer = null;
+    }
+    dragSelectPendingTouch = null;
+}
+
+function isFileListBlankTarget(target) {
+    const list = document.getElementById('fileList');
+    if (!list || !target || !list.contains(target)) return false;
+    if (target.closest('.file-item')) return false;
+    return true;
+}
+
+function pointFromMouseEvent(e) {
+    return { x: e.clientX, y: e.clientY };
+}
+
+function pointFromTouch(touch) {
+    return { x: touch.clientX, y: touch.clientY };
+}
+
+function findTouchById(list, id) {
+    for (let i = 0; i < list.length; i++) {
+        if (list[i].identifier === id) return list[i];
+    }
+    return null;
+}
+
+function rectFromPoints(a, b) {
+    const left = Math.min(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    return {
+        left,
+        top,
+        right: Math.max(a.x, b.x),
+        bottom: Math.max(a.y, b.y),
+        width: Math.abs(a.x - b.x),
+        height: Math.abs(a.y - b.y),
+    };
+}
+
+function rectsIntersect(a, b) {
+    return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
+function setDragSelectSuppressClick() {
+    dragSelectSuppressClick = true;
+    if (dragSelectSuppressTimer) clearTimeout(dragSelectSuppressTimer);
+    dragSelectSuppressTimer = setTimeout(() => {
+        dragSelectSuppressClick = false;
+        dragSelectSuppressTimer = null;
+    }, 180);
+}
+
+function syncSelectedFileItems() {
+    document.querySelectorAll('#fileList .file-item').forEach(item => {
+        item.classList.toggle('selected', selected.has(item.dataset.path));
+    });
+}
+
+function showSelectionRect(rect) {
+    const el = document.getElementById('selectionRect');
+    if (!el) return;
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.height = rect.height + 'px';
+    el.classList.add('show');
+}
+
+function hideSelectionRect() {
+    const el = document.getElementById('selectionRect');
+    if (el) el.classList.remove('show');
+}
+
+function startDragSelection(point, additive = false, touchId = null) {
+    dragSelecting = true;
+    dragSelectStart = point;
+    dragSelectAdditive = additive;
+    dragSelectMoved = false;
+    dragSelectTouchId = touchId;
+    dragSelectInitialSelected = new Set(selected);
+    if (!additive) selected.clear();
+    syncSelectedFileItems();
+    hideCtx();
+
+    document.addEventListener('mousemove', onDragSelectionMove);
+    document.addEventListener('mouseup', onDragSelectionEnd);
+    document.addEventListener('touchmove', onDragSelectionTouchMove, { passive: false });
+    document.addEventListener('touchend', onDragSelectionEnd);
+    document.addEventListener('touchcancel', onDragSelectionEnd);
+
+    dragSelectOriginalUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+}
+
+function onDragSelectionMove(e) {
+    if (!dragSelecting) return;
+    e.preventDefault();
+    updateDragSelection(pointFromMouseEvent(e));
+}
+
+function onDragSelectionTouchMove(e) {
+    if (!dragSelecting) return;
+    clearDragSelectionTimer();
+    const touch = dragSelectTouchId === null ? e.touches[0] : findTouchById(e.touches, dragSelectTouchId);
+    if (!touch) return;
+    e.preventDefault();
+    updateDragSelection(pointFromTouch(touch));
+}
+
+function updateDragSelection(point) {
+    if (!dragSelectStart) return;
+    const rect = rectFromPoints(dragSelectStart, point);
+    if (rect.width > 3 || rect.height > 3) dragSelectMoved = true;
+    if (dragSelectMoved) showSelectionRect(rect);
+    else hideSelectionRect();
+
+    const next = dragSelectAdditive ? new Set(dragSelectInitialSelected) : new Set();
+    document.querySelectorAll('#fileList .file-item').forEach(item => {
+        if (dragSelectMoved && rectsIntersect(rect, item.getBoundingClientRect())) {
+            next.add(item.dataset.path);
+        }
+    });
+    selected = next;
+    syncSelectedFileItems();
+}
+
+function onFileListMouseDown(e) {
+    if (e.button !== 0 || !isFileListBlankTarget(e.target)) return;
+    e.preventDefault();
+    clearDragSelectionTimer();
+    startDragSelection(pointFromMouseEvent(e), e.ctrlKey || e.metaKey);
+}
+
+function onFileListTouchStart(e) {
+    if (e.touches.length !== 1 || !isFileListBlankTarget(e.target)) return;
+    const touch = e.touches[0];
+    clearDragSelectionTimer();
+    dragSelectPendingTouch = {
+        id: touch.identifier,
+        point: pointFromTouch(touch),
+    };
+    dragSelectTimer = setTimeout(() => {
+        if (!dragSelectPendingTouch) return;
+        const pending = dragSelectPendingTouch;
+        dragSelectPendingTouch = null;
+        dragSelectTimer = null;
+        startDragSelection(pending.point, false, pending.id);
+        setDragSelectSuppressClick();
+        if (vibrateEnabled && navigator.vibrate) navigator.vibrate(35);
+    }, 450);
+}
+
+function onFileListTouchMove(e) {
+    if (dragSelecting) return;
+    if (!dragSelectPendingTouch) return;
+    const touch = findTouchById(e.touches, dragSelectPendingTouch.id);
+    if (!touch) return clearDragSelectionTimer();
+    const point = pointFromTouch(touch);
+    const dx = Math.abs(point.x - dragSelectPendingTouch.point.x);
+    const dy = Math.abs(point.y - dragSelectPendingTouch.point.y);
+    if (dx > 10 || dy > 10) clearDragSelectionTimer();
+}
+
+function onFileListTouchEnd() {
+    if (!dragSelecting) clearDragSelectionTimer();
+}
+
+function isDragSelectionEndEvent(e) {
+    if (dragSelectTouchId === null || !e.changedTouches) return true;
+    return !!findTouchById(e.changedTouches, dragSelectTouchId);
+}
+
+function onDragSelectionEnd(e) {
+    if (e && !isDragSelectionEndEvent(e)) return;
+    clearDragSelectionTimer();
+    if (!dragSelecting) return;
+
+    dragSelecting = false;
+    dragSelectStart = null;
+    dragSelectTouchId = null;
+    dragSelectInitialSelected.clear();
+    hideSelectionRect();
+
+    document.removeEventListener('mousemove', onDragSelectionMove);
+    document.removeEventListener('mouseup', onDragSelectionEnd);
+    document.removeEventListener('touchmove', onDragSelectionTouchMove);
+    document.removeEventListener('touchend', onDragSelectionEnd);
+    document.removeEventListener('touchcancel', onDragSelectionEnd);
+
+    document.body.style.userSelect = dragSelectOriginalUserSelect;
+    dragSelectOriginalUserSelect = '';
+    setDragSelectSuppressClick();
+}
+
+function onFileListClick(e) {
+    if (dragSelectSuppressClick) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragSelectSuppressClick = false;
+        return;
+    }
+    if (!e.target.closest('.file-item')) {
+        selected.clear();
+        renderFiles();
+    }
 }
 
 /* ============================================================
@@ -2244,9 +2635,24 @@ function ctxProps() {
     document.getElementById('propName').textContent = f.name;
     document.getElementById('propPath').textContent = f.path;
     document.getElementById('propType').textContent = f.isDir ? '文件夹' : extLabel(f.name);
-    document.getElementById('propSize').textContent = f.isDir ? '—' : fmtSize(f.size);
+    document.getElementById('propSize').textContent = f.isDir ? '计算中...' : fmtSize(f.size);
     document.getElementById('propModified').textContent = f.modifiedStr;
     showModal('propsModal');
+    refreshProps(path);
+}
+
+async function refreshProps(path) {
+    try {
+        const info = await apiFetch('/api/fileinfo?path=' + encodeURIComponent(path));
+        document.getElementById('propName').textContent = info.name || '';
+        document.getElementById('propPath').textContent = info.path || path;
+        document.getElementById('propType').textContent = info.isDir ? '文件夹' : extLabel(info.name || '');
+        document.getElementById('propSize').textContent = fmtSize(Number(info.size) || 0);
+        document.getElementById('propModified').textContent = info.modifiedStr || '--';
+    } catch (e) {
+        document.getElementById('propSize').textContent = '计算失败';
+        toast(e.message, 'error');
+    }
 }
 
 /* ============================================================
@@ -2795,16 +3201,16 @@ function setupEvents() {
     setupKeyboard();
     setupTouch();
 
-    // Click empty area to deselect
-    document.getElementById('fileList').addEventListener('click', (e) => {
-        if (!e.target.closest('.file-item')) {
-            selected.clear();
-            renderFiles();
-        }
-    });
+    const fileList = document.getElementById('fileList');
+    fileList.addEventListener('mousedown', onFileListMouseDown);
+    fileList.addEventListener('touchstart', onFileListTouchStart, { passive: true });
+    fileList.addEventListener('touchmove', onFileListTouchMove, { passive: true });
+    fileList.addEventListener('touchend', onFileListTouchEnd, { passive: true });
+    fileList.addEventListener('touchcancel', onFileListTouchEnd, { passive: true });
+    fileList.addEventListener('click', onFileListClick);
 
     // Right-click on empty area
-    document.getElementById('fileList').addEventListener('contextmenu', (e) => {
+    fileList.addEventListener('contextmenu', (e) => {
         if (e.target.closest('.file-item')) return;
         e.preventDefault();
         selected.clear();
@@ -2997,6 +3403,8 @@ function showCtx(x, y) {
     setDisabled('ctxDownload', !hasSel || (singleFile && f && f.isDir));
     setDisabled('ctxEdit', !singleFile || !isTextFile(f));
     setDisabled('ctxShare', !singleFile || !f || f.isDir);
+    setDisabled('ctxCompress', !hasSel);
+    setDisabled('ctxExtract', !singleFile || !isExtractableArchive(f));
     setDisabled('ctxCopy', !hasSel);
     setDisabled('ctxCut', !hasSel);
     setDisabled('ctxPaste', !clipboard);
@@ -3010,7 +3418,7 @@ function showCtx(x, y) {
         menu.style.left = ''; menu.style.right = '';
         menu.style.bottom = ''; menu.style.top = '';
     } else {
-        const mw = 220, mh = menu.scrollHeight || 390;
+        const mw = 220, mh = menu.scrollHeight || 460;
         if (x + mw > window.innerWidth) x = window.innerWidth - mw - 8;
         if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
         if (x < 0) x = 8; if (y < 0) y = 8;
@@ -3045,6 +3453,161 @@ function ctxEdit() {
     const f = files.find(fi => fi.path === path);
     if (!isTextFile(f)) return toast('此文件不适合网页编辑', 'warning');
     openTextEditor(path);
+}
+
+function isExtractableArchive(f) {
+    if (!f || f.isDir) return false;
+    const name = (f.name || '').toLowerCase();
+    return name.endsWith('.zip') ||
+        name.endsWith('.tar') ||
+        name.endsWith('.tar.gz') ||
+        name.endsWith('.tgz') ||
+        name.endsWith('.tar.bz2') ||
+        name.endsWith('.tbz2') ||
+        name.endsWith('.tar.xz') ||
+        name.endsWith('.txz');
+}
+
+function archiveTimestamp() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+function defaultArchiveName() {
+    if (selected.size === 1) {
+        const path = [...selected][0];
+        const f = files.find(fi => fi.path === path);
+        if (f) {
+            const base = f.name.replace(/\.[^.]+$/, '') || 'archive';
+            return `${base}.zip`;
+        }
+    }
+    return `archive_${archiveTimestamp()}.zip`;
+}
+
+function openCompressModal() {
+    hideCtx();
+    if (selected.size === 0) return toast('请选择要压缩的文件', 'warning');
+    archiveSources = [...selected];
+    document.getElementById('archiveNameInput').value = defaultArchiveName();
+    document.getElementById('archiveDestInput').value = curPath || '/';
+    setArchiveBusy(false);
+    showModal('archiveModal');
+    setTimeout(() => document.getElementById('archiveNameInput').select(), 60);
+}
+
+function openExtractModal() {
+    hideCtx();
+    if (selected.size !== 1) return;
+    const path = [...selected][0];
+    const f = files.find(fi => fi.path === path);
+    if (!isExtractableArchive(f)) return toast('此格式暂不支持解压', 'warning');
+    extractSourcePath = path;
+    document.getElementById('extractSourceText').textContent = f.path;
+    document.getElementById('extractDestInput').value = curPath || '/';
+    showModal('extractModal');
+}
+
+function parentDir(path) {
+    if (!path || path === '/') return '/';
+    return path.split('/').slice(0, -1).join('/') || '/';
+}
+
+async function openDirectoryPicker(targetInputId) {
+    directoryPickerTarget = targetInputId;
+    const input = document.getElementById(targetInputId);
+    const start = input?.value || curPath || '/';
+    showModal('directoryPickerModal');
+    await loadDirectoryPicker(start);
+}
+
+async function loadDirectoryPicker(path) {
+    const list = document.getElementById('dirPickerList');
+    list.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+    try {
+        const data = await apiFetch('/api/list?path=' + encodeURIComponent(path || '/'));
+        directoryPickerPath = data.path || '/';
+        document.getElementById('dirPickerPath').textContent = directoryPickerPath;
+        const dirs = (data.items || []).filter(f => f.isDir);
+        const rows = [];
+        if (directoryPickerPath !== '/') {
+            rows.push(`<button class="dir-picker-item" data-dir-path="${escAttr(parentDir(directoryPickerPath))}"><span>⬆️</span><span>上一级</span></button>`);
+        }
+        rows.push(...dirs.map(d => `<button class="dir-picker-item" data-dir-path="${escAttr(d.path)}"><span>📁</span><span>${esc(d.name)}</span></button>`));
+        list.innerHTML = rows.length ? rows.join('') : '<div class="empty-state"><div class="empty-text">没有子文件夹</div></div>';
+        list.querySelectorAll('[data-dir-path]').forEach(btn => {
+            btn.onclick = () => loadDirectoryPicker(btn.getAttribute('data-dir-path') || '/');
+        });
+    } catch (e) {
+        list.innerHTML = '';
+        toast(e.message, 'error');
+    }
+}
+
+function selectDirectoryPickerPath() {
+    const input = document.getElementById(directoryPickerTarget);
+    if (input) input.value = directoryPickerPath || '/';
+    hideModal('directoryPickerModal');
+}
+
+function setArchiveBusy(busy) {
+    const btn = document.getElementById('archiveConfirmBtn');
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.textContent = busy ? '压缩中...' : '压缩';
+}
+
+async function doCompress() {
+    if (!archiveSources.length) return toast('请选择要压缩的文件', 'warning');
+    const name = document.getElementById('archiveNameInput').value.trim();
+    const dest = document.getElementById('archiveDestInput').value || '/';
+    if (!name) return toast('请输入压缩包名称', 'warning');
+    setArchiveBusy(true);
+    try {
+        const data = await apiFetch('/api/archive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sources: archiveSources, dest, name }),
+        });
+        if (!data.success) {
+            toast((data.errors || []).join('\n') || '压缩失败', 'error');
+            return;
+        }
+        hideModal('archiveModal');
+        archiveSources = [];
+        selected.clear();
+        toast(data.message || '压缩完成', 'success');
+        try {
+            await loadFiles(data.dest || dest);
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+        loadDiskInfo();
+    } catch (e) {
+        toast(e.message, 'error');
+    } finally {
+        setArchiveBusy(false);
+    }
+}
+
+async function doExtract() {
+    if (!extractSourcePath) return toast('请选择要解压的文件', 'warning');
+    const dest = document.getElementById('extractDestInput').value || '/';
+    try {
+        const data = await apiFetch('/api/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: extractSourcePath, dest }),
+        });
+        hideModal('extractModal');
+        extractSourcePath = '';
+        toast(data.message || '解压完成', 'success');
+        await loadFiles(data.dest || dest);
+        loadDiskInfo();
+    } catch (e) {
+        toast(e.message, 'error');
+    }
 }
 
 function absoluteUrl(url) {
@@ -4184,11 +4747,22 @@ function renderDisk() {
 function openSettingsModal() {
     document.getElementById('settingsUsername').textContent = currentUsername || '未启用认证';
     renderSettingsDiskInfo();
+    const usernameInput = document.getElementById('accountUsernameInput');
+    if (usernameInput) usernameInput.value = currentUsername || '';
     ['oldPasswordInput','newPasswordInput','confirmPasswordInput'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
+    // Initialize vibrate toggle
+    const vibrateToggle = document.getElementById('vibrateToggle');
+    if (vibrateToggle) vibrateToggle.checked = vibrateEnabled;
     showModal('settingsModal');
+}
+
+function toggleVibrate(enabled) {
+    vibrateEnabled = enabled;
+    localStorage.setItem('fm_vibrate', enabled ? 'true' : 'false');
+    toast(enabled ? '已启用震动反馈' : '已关闭震动反馈', 'info');
 }
 
 function setSettingsValue(id, value) {
@@ -4206,19 +4780,23 @@ function renderSettingsDiskInfo() {
     setSettingsValue('settingsRootPath', diskInfo?.rootPath);
 }
 
-async function changePassword() {
+async function changeAccount() {
+    const newUsername = document.getElementById('accountUsernameInput').value.trim();
     const oldPassword = document.getElementById('oldPasswordInput').value;
     const newPassword = document.getElementById('newPasswordInput').value;
     const confirmPassword = document.getElementById('confirmPasswordInput').value;
-    if (!oldPassword || !newPassword) return toast('请填写旧密码和新密码', 'warning');
+    if (!newUsername) return toast('请输入登录账号', 'warning');
+    if (newUsername.includes(':')) return toast('登录账号不能包含冒号', 'warning');
+    if (!oldPassword) return toast('请输入当前密码', 'warning');
     if (newPassword !== confirmPassword) return toast('两次输入的新密码不一致', 'warning');
     try {
-        await apiFetch('/api/auth/change-password', {
+        await apiFetch('/api/auth/change-account', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ oldPassword, newPassword }),
+            body: JSON.stringify({ newUsername, oldPassword, newPassword }),
         });
-        toast('密码已修改，请重新登录', 'success');
+        currentUsername = newUsername;
+        toast('账号设置已保存，请重新登录', 'success');
         hideModal('settingsModal');
         appStarted = false;
         showLogin();
